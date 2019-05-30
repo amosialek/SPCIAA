@@ -1,11 +1,13 @@
 import java.util.*;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public class Simulation {
 
-    final Problem problem = new HeatTransfer();
+//    final Problem problem = new HeatTransfer();
+    static Problem problem;
 
     public void run(int k, double dt, int steps, Function<Double, Double> initialState) throws Exception {
         // build the tree with k levels (P1, P2, P3)
@@ -67,13 +69,13 @@ public class Simulation {
         for (int i = 0; i < steps; ++i)
         {
             barrier = new CyclicBarrier(7);
-                HeatTransfer ht = new HeatTransfer();
-                ht.makeA1(p3a.m_vertex,1d/k,dt,i*dt,barrier).start();
-                ht.makeA(p3b.m_vertex,1d/k,dt,i*dt,barrier).start();
-                ht.makeA(p3c.m_vertex,1d/k,dt,i*dt,barrier).start();
-                ht.makeA(p3d.m_vertex,1d/k,dt,i*dt,barrier).start();
-                ht.makeA(p3e.m_vertex,1d/k,dt,i*dt,barrier).start();
-                ht.makeAN(p3f.m_vertex,1d/k,dt,i*dt,barrier).start();
+
+                problem.makeA1(p3a.m_vertex,1d/k,dt,i*dt,barrier).start();
+                problem.makeA(p3b.m_vertex,1d/k,dt,i*dt,barrier).start();
+                problem.makeA(p3c.m_vertex,1d/k,dt,i*dt,barrier).start();
+                problem.makeA(p3d.m_vertex,1d/k,dt,i*dt,barrier).start();
+                problem.makeA(p3e.m_vertex,1d/k,dt,i*dt,barrier).start();
+                problem.makeAN(p3f.m_vertex,1d/k,dt,i*dt,barrier).start();
                 barrier.await();
             barrier = new CyclicBarrier(3+1);
             A2 mergedMat1 = new A2(p2c.m_vertex, barrier);
@@ -135,11 +137,150 @@ public class Simulation {
         }
     }
 
+    public Vertex runLevels(int levels, double dt, int steps, Function<Double, Double> initialState) {
+        Vertex S = new Vertex(null, null, null, "S");
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(1 + 1);
+            P1 p1 = new P1(S, barrier);
+            p1.start();
+            barrier.await();
+            List<List<Production>> levelProductions = new LinkedList<>();
+            levelProductions.add(new LinkedList<>());
+            levelProductions.get(0).add(p1);
+            //PrettyPrint.printTreeStructure(p1.m_vertex);
+            for(int i=0;i<levels-2;i++)
+            {
+                levelProductions.add(new LinkedList<>());
+                barrier = new CyclicBarrier((int)Math.pow(2, (i+1)) + 1);
+                for(int j=0;j<levelProductions.get(i).size();j++) {
+                    P2 p_left = new P2(levelProductions.get(i).get(j).m_vertex.m_left, barrier);
+                    P2 p_right = new P2(levelProductions.get(i).get(j).m_vertex.m_right, barrier);
+                    levelProductions.get(i+1).add(p_left);
+                    levelProductions.get(i+1).add(p_right);
+                    p_left.start();
+                    p_right.start();
+                }
+                barrier.await();
+            }
+            //PrettyPrint.printTreeStructure(p1.m_vertex);
+            levelProductions.add(new LinkedList<>());
+            barrier = new CyclicBarrier((int)Math.pow(2,(levels-1)) + 1);
+            for(int j=0;j<levelProductions.get(levels-2).size();j++) {
+                P3 p_left = new P3(levelProductions.get(levels-2).get(j).m_vertex.m_left, barrier);
+                P3 p_right = new P3(levelProductions.get(levels-2).get(j).m_vertex.m_right, barrier);
+                levelProductions.get(levels-1).add(p_left);
+                levelProductions.get(levels-1).add(p_right);
+                p_left.start();
+                p_right.start();
+//                System.out.println(levelProductions.get(levels-1).size());
+//                System.out.println((int)Math.pow(2,(levels-1)) + 1);
+            }
+            barrier.await();
+            int leavesCount = (int)Math.pow(2,levels-1);
+            for(int j=0;j<levelProductions.get(levels-1).size();j++)
+            {
+                levelProductions.get(levels-1).get(j).m_vertex.m_x[1]=initialState.apply(1.0/leavesCount * j);
+            }
+            List<Vertex> s = collectLeaves(p1.m_vertex);
+
+            double[] init = new double[leavesCount+1];
+            for(int i=0;i<leavesCount;i++)
+            {
+                init[i] = s.get(i).m_x[1];
+            }
+            init[leavesCount]=s.get(leavesCount-1).m_x[2];
+            plotSolution(init);
+            for (int i = 0; i < steps; ++i) {
+                barrier = new CyclicBarrier(leavesCount+1);
+
+                problem.makeA1(levelProductions.get(levels-1).get(0).m_vertex, 1d / leavesCount, dt, i * dt, barrier).start();
+                for(int leafIndex=1;leafIndex<levelProductions.get(levels-1).size()-1;leafIndex++)
+                {
+                    problem.makeA(levelProductions.get(levels-1).get(leafIndex).m_vertex, 1d / leavesCount, dt, leafIndex * dt, barrier).start();
+                }
+                problem.makeAN(levelProductions.get(levels-1).get(levelProductions.get(levels-1).size()-1).m_vertex, 1d / leavesCount, dt, i * dt, barrier).start();
+                barrier.await();
+                for(int level=levels-2;level>0;level--)
+                {
+                    barrier = new CyclicBarrier(levelProductions.get(level).size()+1);
+                    for(int j=0;j<levelProductions.get(level).size();j++)
+                    {
+                        A2 a2 = new A2(levelProductions.get(level).get(j).m_vertex,barrier);
+                        a2.start();
+                    }
+                    barrier.await();
+                    barrier = new CyclicBarrier(levelProductions.get(level).size()+1);
+                    for(int j=0;j<levelProductions.get(level).size();j++)
+                    {
+                        E2 e2 = new E2(levelProductions.get(level).get(j).m_vertex,barrier);
+                        e2.start();
+                    }
+                    barrier.await();
+
+                }
+                barrier = new CyclicBarrier(2);
+                Aroot aroot = new Aroot(p1.m_vertex,barrier);
+                aroot.start();
+                barrier.await();
+//                System.out.println(p1.m_vertex);
+                barrier = new CyclicBarrier(2);
+                Eroot eroot = new Eroot(p1.m_vertex,barrier);
+                eroot.start();
+                barrier.await();
+//                System.out.println(p1.m_vertex);
+                for(int level=0;level<levels-2;level++)
+                {
+                    barrier = new CyclicBarrier(levelProductions.get(level).size()+1);
+                    for(int j=0;j<levelProductions.get(level).size();j++)
+                    {
+                        BS bs = new BS(levelProductions.get(level).get(j).m_vertex,barrier);
+                        bs.start();
+                    }
+                    barrier.await();
+                }
+                barrier = new CyclicBarrier(levelProductions.get(levels-2).size()+1);
+                for(int productionIndex=0;productionIndex<levelProductions.get(levels-2).size();productionIndex++)
+                {
+                    BSA bsa = new BSA(levelProductions.get(levels-2).get(productionIndex).m_vertex,barrier);
+                    bsa.start();
+                }
+                barrier.await();
+                // Get the solution from the leaves and plot it
+                double[] solution =  new double[leavesCount+1];
+                s = collectLeaves(p1.m_vertex);
+                for(int j=0;j<leavesCount;j++)
+                {
+                    solution[j] = s.get(j).m_x[1];
+                }
+                solution[leavesCount]=s.get(leavesCount-1).m_x[2];
+                plotSolution(solution);
+            }
+            for(int i=0;i<levelProductions.get(levels-1).size();i++) {
+//                System.out.println( );
+//                System.out.println(i);
+//                System.out.println(levelProductions.get(levels-1).get(i).m_vertex);
+//                System.out.println( );
+            }
+
+
+
+
+//            barrier = new
+//            A1 a1 = new A1(levelProductions.get(levels).get(0).m_vertex,barrier);
+//            AN an = new AN(levelProductions.get(levels).get(2^(levels-1)).m_vertex,barrier);
+
+
+            return S;
+        } catch (InterruptedException | BrokenBarrierException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void plotSolution(double[] values) throws InterruptedException {
         int delay = 1000;
         ResultPrinter.printResult(values);
         ResultPrinter.plot.setFixedBounds(1, -1.5, 1.5);
-        TimeUnit.MILLISECONDS.sleep(delay);
+        //TimeUnit.MILLISECONDS.sleep(delay);
     }
     private List<Vertex> collectLeaves(Vertex root) {
         List<Vertex> leaves = new ArrayList<>();
@@ -161,9 +302,15 @@ public class Simulation {
     public static void main(String[] args) throws Exception {
         Simulation s = new Simulation();
 
-        int k = 3;
-        double dt = 0.01;
-        int steps = 10;
-        s.run(k, dt, steps, x -> Math.sin(2 * Math.PI * x));
+        int k = 8;
+        double dt = 0.001;
+        int steps = 10000;
+//        problem = new HeatTransfer();
+        //s.runLevels(k, dt, steps, x -> Math.sin(2 * Math.PI * x));
+        problem = new FlowingWave();
+        //problem = new Excercise2();
+        //s.runLevels(k, dt, steps, x -> Math.sin(2 * Math.PI * x));
+//        s.runLevels(k, dt, steps, x -> 0.0);
+        s.run(6, dt, steps, x->Math.sin(2 * Math.PI * x));
     }
 }

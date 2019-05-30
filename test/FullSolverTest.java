@@ -42,7 +42,7 @@ public class FullSolverTest {
 
     @Test
     public void solvingUniformTreeWorks() {
-//        testSolving(2);
+        testSolving(2);
         testSolving(3);
         testSolving(4);
     }

@@ -6,7 +6,7 @@ class A2 extends Production {
     }
 
     Vertex apply(Vertex T) {
-        System.out.println("A2");
+//        System.out.println("A2");
         T.m_b[1] = T.m_left.m_b[1];
         T.m_b[0] = T.m_left.m_b[2] + T.m_right.m_b[1];
         T.m_b[2] = T.m_right.m_b[2];

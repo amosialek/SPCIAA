@@ -6,7 +6,7 @@ class BS extends Production {
     }
 
     Vertex apply(Vertex T) {
-        System.out.println("BS");
+//        System.out.println("BS");
         T.m_left.m_x[0] = T.m_x[0];
         T.m_left.m_x[2] = T.m_x[1];
         T.m_left.m_x[1] = (T.m_left.m_b[0] - T.m_left.m_a[0][1] * T.m_left.m_x[0]

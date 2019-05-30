@@ -14,7 +14,7 @@ class P2 extends Production {
     }
 
     Vertex apply(Vertex S) {
-        System.out.println("p2");
+//        System.out.println("p2");
         Vertex T1 = new Vertex(null, null, S, "T");
         Vertex T2 = new Vertex(null, null, S, "T");
         S.set_left(T1);
